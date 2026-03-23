@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>球球大作战</title>
+<style>
+  body {
+    margin: 0;
+    background: #000;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+  }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: #000;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+// ===== 音效 =====
+const hitSound = new Audio("hit.mp3");
+hitSound.volume = 1.0;   // 最大音量
+const failSound = new Audio("fail.mp3");
+hitSound.volume = 1.0;   // 最大音量
+// ===== 背景音乐 =====
+const bgm = new Audio("bgm.mp3");
+bgm.loop = true;      // 循环
+bgm.volume = 0.4;     // 音量 0~1 自己调
+
+let bgmStarted = false;         // 防止重复播放
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+let state = "menu";
+
+let ball = null;
+let combo = 0;
+let best = 0;
+let life = 0;
+let maxLife = 1500;
+let appearAnim = 0;
+
+let menuAnim = 0; // ✅ 新增菜单动画变量
+let hitEffect = 0;
+let shakePower = 0;
+let menuButton = {};   // ⭐ 记录进入游戏按钮区域
+let overButton = {};   // ⭐ 记录返回首页按钮区域
+
+
+// ---------- 星空 ----------
+const stars = [];
+for (let i = 0; i < 200; i++) {
+  stars.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    r: Math.random() * 1.5 + 0.5
+  });
+}
+
+function drawStars() {
+  ctx.fillStyle = "#ffffff";
+  stars.forEach(s => {
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ---------- 生成球 ----------
+function spawnBall() {
+  const r = 30;
+  ball = {
+    x: Math.random() * (canvas.width - r * 6) + r,
+    y: Math.random() * (canvas.height - r * 6) + r,
+    r
+  };
+  life = 0;
+  appearAnim = 0;
+}
+
+// ---------- 游戏开始 ----------
+function startGame() {
+  combo = 0;
+  maxLife = 1500;
+  state = "playing";
+  spawnBall();
+}
+
+// ---------- 结束 ----------
+function endGame() {
+
+  failSound.currentTime = 0;
+  failSound.play();
+
+  state = "gameover";
+}
+
+// ---------- 点击 ----------
+canvas.addEventListener('click', e => {
+
+  // ===== 第一次点击启动背景音乐 =====
+  if (!bgmStarted) {
+    bgm.play().catch(() => {});
+    bgmStarted = true;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // ====== 菜单 ======
+  if (state === "menu") {
+
+    if (
+      mx >= menuButton.x &&
+      mx <= menuButton.x + menuButton.w &&
+      my >= menuButton.y &&
+      my <= menuButton.y + menuButton.h
+    ) {
+      startGame();
+    }
+
+    return;
+  }
+
+  // ====== 结算页面 ======
+  if (state === "gameover") {
+
+    if (
+      mx >= overButton.x &&
+      mx <= overButton.x + overButton.w &&
+      my >= overButton.y &&
+      my <= overButton.y + overButton.h
+    ) {
+      state = "menu";
+    }
+
+    return;
+  }
+
+  // ====== 游戏中 ======
+  if (state !== "playing") return;
+
+  const dx = mx - ball.x;
+  const dy = my - ball.y;
+  const hit = Math.hypot(dx, dy) <= ball.r;
+
+  if (hit) {
+
+  hitSound.currentTime = 0;
+  hitSound.volume = 1.0;
+  hitSound.play();
+
+  combo++;
+  best = Math.max(best, combo);
+  maxLife = Math.max(500, 1500 - combo * 40);
+
+  // ✅ 触发效果
+  hitEffect = 150;     // 持续时间
+  shakePower = 6;      // 震动强度
+
+  spawnBall();
+} else {
+    endGame();
+  }
+
+});
+
+// ---------- 主循环 ----------
+let last = performance.now();
+
+function loop(now) {
+  const dt = now - last;
+  last = now;
+  menuAnim += dt;   // ✅ 让菜单和GameOver共用呼吸动画
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+ctx.save();
+
+// 如果有震动
+if (hitEffect > 0) {
+  hitEffect -= dt;
+
+  const dx = (Math.random() - 0.5) * shakePower;
+  const dy = (Math.random() - 0.5) * shakePower;
+
+  ctx.translate(dx, dy);
+
+  // 轻微放大
+  const scale = 1.03;
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(scale, scale);
+  ctx.translate(-canvas.width / 2, -canvas.height / 2);
+}
+
+drawStars();
+
+  if (state === "menu") drawMenu(dt);
+
+  if (state === "playing") {
+
+    life += dt;
+    appearAnim += dt;
+
+    if (life >= maxLife) {
+      endGame();
+    }
+
+    drawBall(dt);
+    drawUI();
+  }
+
+  if (state === "gameover") drawGameOver();
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+// ---------- 画球 ----------
+function drawBall(dt) {
+
+  let scale = 1;
+  if (appearAnim < 200) {
+    scale = 1 + (200 - appearAnim) / 200 * 0.3;
+  }
+
+  const alpha = 1 - life / maxLife;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  const gradient = ctx.createRadialGradient(
+    ball.x,
+    ball.y,
+    ball.r * 0.1,
+    ball.x,
+    ball.y,
+    ball.r
+  );
+
+  gradient.addColorStop(0, "#fff176");
+  gradient.addColorStop(0.6, "#ffeb3b");
+  gradient.addColorStop(1, "rgba(255,235,59,0)");
+
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r * scale, 0, Math.PI * 2);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ---------- 菜单 ----------
+function drawMenu(dt) {
+
+  menuAnim += dt;
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+ // ===== 标题整体呼吸（两行但一个整体）=====
+ctx.save();
+
+const centerX = canvas.width / 2;
+const centerY = canvas.height / 2 - 80;
+
+// 整体呼吸
+const breathe = 1 + Math.sin(menuAnim * 0.002) * 0.03;
+
+ctx.translate(centerX, centerY);
+ctx.scale(breathe, breathe);
+
+ctx.fillStyle = "#f5f5f5";
+ctx.textAlign = "center";
+ctx.textBaseline = "middle";
+ctx.font = "bold 64px Arial";
+
+// 第一行
+ctx.fillText("球球", 0, -30);
+
+// 第二行
+ctx.fillText("大作战", 0, 40);
+
+ctx.restore();
+  // ====== 高级按钮 ======
+  const btnY = canvas.height / 2 + 150;
+  const btnWidth = 200;
+  const btnHeight = 56;
+  // ⭐ 保存按钮真实位置
+overButton.x = canvas.width / 2 - btnWidth / 2;
+overButton.y = canvas.height / 2 + 20;
+overButton.w = btnWidth;
+overButton.h = btnHeight;
+  const btnX = canvas.width / 2 - btnWidth / 2;
+  // ⭐ 保存按钮真实位置（用于点击检测）
+menuButton.x = btnX;
+menuButton.y = btnY - btnHeight / 2;
+menuButton.w = btnWidth;
+menuButton.h = btnHeight;
+
+  // 按钮轻呼吸
+  const btnScale = 1 + Math.sin(menuAnim * 0.002) * 0.02;
+
+  ctx.save();
+  ctx.translate(canvas.width / 2, btnY);
+  ctx.scale(btnScale, btnScale);
+
+  // 半透明背景
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  roundRect(ctx, -btnWidth/2, -btnHeight/2, btnWidth, btnHeight, 28, true, false);
+
+  // 细边框
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, -btnWidth/2, -btnHeight/2, btnWidth, btnHeight, 28, false, true);
+
+  // 按钮文字
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 20px Arial";
+  ctx.fillText("进入游戏", 0, 2);
+
+  ctx.restore();
+}function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+// ---------- UI ----------
+function drawUI() {
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = "left";
+  ctx.font = 'bold 18px Arial';
+
+  ctx.fillText('最佳: ' + best, 40, 60);
+  ctx.fillText('连击: ' + combo, 40, 95); // ↓ 往下调
+}
+
+function drawGameOver() {
+
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // ===== 整体呼吸开始 =====
+  const breathe = 1 + Math.sin(menuAnim * 0.002) * 0.04;
+
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(breathe, breathe);
+
+  // 标题
+  ctx.fillStyle = "#f5f5f5";
+  ctx.font = "800 48px Arial";
+  ctx.fillText("呀，失误了", 0, -40);
+
+  // ===== 按钮 =====
+  const btnWidth = 200;
+  const btnHeight = 56;
+
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  roundRect(ctx, -btnWidth/2, 20, btnWidth, btnHeight, 28, true, false);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+  ctx.lineWidth = 1;
+  roundRect(ctx, -btnWidth/2, 20, btnWidth, btnHeight, 28, false, true);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 20px Arial";
+  ctx.fillText("返回首页", 0, 48);
+
+  ctx.restore();
+  // ===== 整体呼吸结束 =====
+}
+</script>
+
+</body>
+</html>
